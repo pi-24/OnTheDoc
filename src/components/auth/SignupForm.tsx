@@ -57,7 +57,7 @@ export default function SignupForm() {
         <CardDescription>Sign up to start managing your rota and salary.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" suppressHydrationWarning>
           {error && (
              <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
