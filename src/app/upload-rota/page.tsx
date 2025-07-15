@@ -183,14 +183,14 @@ export default function UploadRotaPage() {
             complianceSummary: complianceSummary,
         };
 
-        addRotaDocument(newRotaDocument);
+        await addRotaDocument(newRotaDocument);
         router.push('/');
 
     } catch (error) {
         console.error("Error during rota processing or saving:", error);
         toast({ title: "Error", description: "Failed to save or process the rota. Please try again.", variant: "destructive"});
         const newRotaDocument: RotaDocument = { ...rotaDocumentBase, complianceSummary: undefined };
-        addRotaDocument(newRotaDocument);
+        await addRotaDocument(newRotaDocument);
         router.push('/');
     } finally {
         setIsSavingAndProcessing(false);
@@ -423,4 +423,3 @@ export default function UploadRotaPage() {
     </div>
   );
 }
-

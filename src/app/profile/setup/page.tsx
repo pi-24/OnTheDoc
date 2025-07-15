@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { UserProfileData, UserGrade, UKRegion } from '@/types';
-import { Save, User } from 'lucide-react';
+import { Save, User, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 
 const userGradeOptions: UserGrade[] = ['F1', 'F2', 'CT1', 'CT2', 'CT3+', 'ST1', 'ST2', 'ST3+', 'SpecialtyDoctor', 'Consultant', 'Other'];
@@ -50,6 +50,10 @@ export default function ProfileSetupPage() {
 
   useEffect(() => {
     if (user && !authLoading) {
+      if (user.isProfileComplete) {
+        router.push('/');
+        return;
+      }
       reset({
         grade: user.grade || undefined,
         region: user.region || undefined,
@@ -59,19 +63,23 @@ export default function ProfileSetupPage() {
         nhsPensionOptIn: user.nhsPensionOptIn === undefined ? true : user.nhsPensionOptIn,
       });
     }
-  }, [user, authLoading, reset]);
+  }, [user, authLoading, reset, router]);
 
-  const onSubmit: SubmitHandler<ProfileSetupFormValues> = (data) => {
-    const profileData: Partial<UserProfileData> = { // Ensure we are using Partial for updates
+  const onSubmit: SubmitHandler<ProfileSetupFormValues> = async (data) => {
+    const profileData: Partial<UserProfileData> = {
       ...data,
       isProfileComplete: true,
     };
-    updateUserProfile(profileData);
-    toast({ title: "Profile Setup Complete!", description: "You will now be redirected to the dashboard." });
-    router.push('/'); 
+    try {
+      await updateUserProfile(profileData);
+      toast({ title: "Profile Setup Complete!", description: "You will now be redirected to the dashboard." });
+      router.push('/'); 
+    } catch(error) {
+       toast({ title: "Error", description: "Could not save your profile. Please try again.", variant: "destructive" });
+    }
   };
   
-  if (authLoading) {
+  if (authLoading || !user) {
     return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
   }
 
@@ -137,7 +145,10 @@ export default function ProfileSetupPage() {
               </div>
           </CardContent>
           <CardFooter className="flex justify-end pt-6 border-t">
-            <Button type="submit" disabled={isSubmitting} className="bg-accent hover:bg-accent/90 text-accent-foreground"><Save className="mr-2 h-4 w-4" /> Save and Continue</Button>
+            <Button type="submit" disabled={isSubmitting} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
+             {isSubmitting ? 'Saving...' : 'Save and Continue'}
+            </Button>
           </CardFooter>
         </form>
       </Card>

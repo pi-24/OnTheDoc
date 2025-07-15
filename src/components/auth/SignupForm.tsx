@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { AlertCircle, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { FirebaseError } from 'firebase/app';
 
 const signupSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -34,12 +35,17 @@ export default function SignupForm() {
   const onSubmit: SubmitHandler<SignupFormInputs> = async (data) => {
     setError(null);
     try {
-      // In a real app, this would be an API call.
-      // For mock, we directly call the context's signup.
-      signup(data.email);
-      // Router push is handled by AuthContext signup
+      await signup(data.email, data.password);
     } catch (err) {
-      setError('Failed to sign up. Please try again.');
+      if (err instanceof FirebaseError) {
+        if (err.code === 'auth/email-already-in-use') {
+          setError('This email address is already in use.');
+        } else {
+          setError('An unexpected error occurred. Please try again.');
+        }
+      } else {
+        setError('Failed to sign up. Please try again.');
+      }
       console.error(err);
     }
   };

@@ -12,10 +12,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { AlertCircle, LogIn } from 'lucide-react';
 import Link from 'next/link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { FirebaseError } from 'firebase/app';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(1, 'Password is required'),
 });
 
 type LoginFormInputs = z.infer<typeof loginSchema>;
@@ -30,12 +31,22 @@ export default function LoginForm() {
   const onSubmit: SubmitHandler<LoginFormInputs> = async (data) => {
     setError(null);
     try {
-      // In a real app, this would be an API call.
-      // For mock, we directly call the context's login.
-      login(data.email);
-      // Router push is handled by AuthContext login
+      await login(data.email, data.password);
     } catch (err) {
-      setError('Failed to login. Please check your credentials.');
+      if (err instanceof FirebaseError) {
+        switch (err.code) {
+          case 'auth/invalid-credential':
+          case 'auth/user-not-found':
+          case 'auth/wrong-password':
+            setError('Invalid email or password. Please try again.');
+            break;
+          default:
+            setError('An unexpected error occurred. Please try again.');
+            break;
+        }
+      } else {
+        setError('Failed to login. Please check your credentials.');
+      }
       console.error(err);
     }
   };

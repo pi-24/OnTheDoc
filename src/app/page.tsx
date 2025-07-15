@@ -27,12 +27,20 @@ export default function DashboardPage() {
   const { user, loading: authLoading, deleteRotaDocument } = useAuth();
   const { toast } = useToast();
 
-  const handleDeleteRota = (rotaId: string) => {
-    deleteRotaDocument(rotaId);
-    toast({
-      title: "Rota Removed",
-      description: "The rota has been successfully removed.",
-    });
+  const handleDeleteRota = async (rotaId: string) => {
+    try {
+      await deleteRotaDocument(rotaId);
+      toast({
+        title: "Rota Removed",
+        description: "The rota has been successfully removed.",
+      });
+    } catch(error) {
+       toast({
+        title: "Error",
+        description: "Failed to remove the rota. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   if (authLoading) {

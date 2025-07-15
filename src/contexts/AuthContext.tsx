@@ -4,34 +4,40 @@
 import type { User, UserProfileData, RotaDocument, RotaSpecificScheduleMetadata } from '@/types';
 import React, { createContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { auth, db } from '@/lib/firebase';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  type User as FirebaseUser
+} from 'firebase/auth';
+import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string) => void;
-  signup: (email: string) => void;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  updateUserProfile: (updatedData: Partial<UserProfileData>) => void;
-  addRotaDocument: (rotaDocument: RotaDocument) => void;
-  updateRotaDocument: (rotaDocument: RotaDocument) => void;
-  deleteRotaDocument: (rotaId: string) => void;
+  updateUserProfile: (updatedData: Partial<UserProfileData>) => Promise<void>;
+  addRotaDocument: (rotaDocument: RotaDocument) => Promise<void>;
+  updateRotaDocument: (rotaDocument: RotaDocument) => Promise<void>;
+  deleteRotaDocument: (rotaId: string) => Promise<void>;
   loading: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const initializeNewUser = (email: string): User => ({
-  id: crypto.randomUUID(),
-  email,
-  grade: undefined,
-  region: undefined,
-  taxCode: undefined,
-  hasStudentLoan: false,
-  hasPostgraduateLoan: false,
-  nhsPensionOptIn: true,
-  isProfileComplete: false,
-  rotas: [], 
-});
-
+const initializeNewUserInFirestore = async (firebaseUser: FirebaseUser, email: string) => {
+    const newUser: User = {
+        id: firebaseUser.uid,
+        email,
+        isProfileComplete: false,
+        rotas: [],
+    };
+    await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+    return newUser;
+}
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -40,62 +46,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('OnTheDocUser');
-      if (storedUser) {
-        const parsedUser: User = JSON.parse(storedUser);
-        
-        if (typeof parsedUser.isProfileComplete === 'undefined') {
-            parsedUser.isProfileComplete = false; 
-        }
-
-        if (!parsedUser.rotas || !Array.isArray(parsedUser.rotas)) {
-            parsedUser.rotas = [];
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (firebaseUser) {
+            const userDocRef = doc(db, 'users', firebaseUser.uid);
+            const userDocSnap = await getDoc(userDocRef);
+            if (userDocSnap.exists()) {
+                const userData = userDocSnap.data() as User;
+                 if (typeof userData.isProfileComplete === 'undefined') {
+                    userData.isProfileComplete = false;
+                }
+                if (!userData.rotas) {
+                    userData.rotas = [];
+                }
+                setUser(userData);
+            } else {
+                // This case handles if a user exists in Auth but not in Firestore.
+                const newUser = await initializeNewUserInFirestore(firebaseUser, firebaseUser.email!);
+                setUser(newUser);
+            }
         } else {
-            parsedUser.rotas = parsedUser.rotas.map(rota => {
-                // Define a robust default for scheduleMeta
-                const defaultMeta: RotaSpecificScheduleMetadata = {
-                    site: 'N/A', 
-                    specialty: 'N/A',
-                    scheduleStartDate: '1970-01-01', 
-                    endDate: '1970-01-01',
-                    scheduleTotalWeeks: 1, 
-                    wtrOptOut: false,
-                    annualLeaveEntitlement: 0, 
-                    hoursInNormalDay: 8,
-                };
-
-                // Ensure scheduleMeta exists and is an object, otherwise use default
-                const metaIsValid = rota.scheduleMeta && typeof rota.scheduleMeta === 'object';
-                const currentMeta = metaIsValid ? rota.scheduleMeta : defaultMeta;
-
-                return {
-                    id: rota.id || crypto.randomUUID(),
-                    name: rota.name || 'Unnamed Rota',
-                    scheduleMeta: { // Ensure all fields within scheduleMeta are present
-                        site: currentMeta.site || defaultMeta.site,
-                        specialty: currentMeta.specialty || defaultMeta.specialty,
-                        scheduleStartDate: currentMeta.scheduleStartDate || defaultMeta.scheduleStartDate,
-                        endDate: currentMeta.endDate || defaultMeta.endDate,
-                        scheduleTotalWeeks: typeof currentMeta.scheduleTotalWeeks === 'number' ? currentMeta.scheduleTotalWeeks : defaultMeta.scheduleTotalWeeks,
-                        wtrOptOut: typeof currentMeta.wtrOptOut === 'boolean' ? currentMeta.wtrOptOut : defaultMeta.wtrOptOut,
-                        annualLeaveEntitlement: typeof currentMeta.annualLeaveEntitlement === 'number' ? currentMeta.annualLeaveEntitlement : defaultMeta.annualLeaveEntitlement,
-                        hoursInNormalDay: typeof currentMeta.hoursInNormalDay === 'number' ? currentMeta.hoursInNormalDay : defaultMeta.hoursInNormalDay,
-                    },
-                    shiftDefinitions: Array.isArray(rota.shiftDefinitions) ? rota.shiftDefinitions : [],
-                    rotaGrid: typeof rota.rotaGrid === 'object' && rota.rotaGrid !== null ? rota.rotaGrid : {},
-                    createdAt: rota.createdAt || new Date().toISOString(),
-                    complianceSummary: rota.complianceSummary // Stays undefined if not present, which is fine
-                };
-            });
+            setUser(null);
         }
-        setUser(parsedUser);
-      }
-    } catch (error) {
-      console.error("Failed to parse user from localStorage or migrate rota structure:", error);
-      // localStorage.removeItem('OnTheDocUser'); // Optionally clear corrupted data
-    }
-    setLoading(false);
+        setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -109,112 +84,83 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else if (user.isProfileComplete && (pathname === '/login' || pathname === '/signup')) {
         router.push('/');
       }
-    } else { // No user
-      if (!allowedPublicPaths.includes(pathname) && pathname !== '/profile/setup') { // also protect profile/setup if no user
-        router.push('/about'); // Default to about page if not logged in and not on an allowed public path
+    } else { 
+      if (!allowedPublicPaths.includes(pathname) && pathname !== '/profile/setup') { 
+        router.push('/about');
       }
     }
   }, [user, loading, router, pathname]);
 
-  const login = useCallback((email: string) => {
-    let existingUser: User | null = null;
-    try {
-      const storedUser = localStorage.getItem('OnTheDocUser');
-      if (storedUser) {
-        const parsed: User = JSON.parse(storedUser);
-        if (parsed.email === email) { 
-            existingUser = parsed;
-            // Ensure backward compatibility for isProfileComplete and rotas
-            if (typeof existingUser.isProfileComplete === 'undefined') existingUser.isProfileComplete = false;
-            if (!existingUser.rotas) existingUser.rotas = [];
-        }
-      }
-    } catch (error) {
-        console.error("Error reading user for login", error);
-    }
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
+    // onAuthStateChanged will handle setting the user and redirecting.
+  };
 
-    const currentUser = existingUser || initializeNewUser(email);
-    setUser(currentUser);
-    try {
-      localStorage.setItem('OnTheDocUser', JSON.stringify(currentUser));
-    } catch (error) {
-      console.error("Failed to set user in localStorage", error);
-    }
+  const signup = async (email: string, password: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    await initializeNewUserInFirestore(userCredential.user, email);
+    // onAuthStateChanged will handle setting the user and redirecting.
+  };
 
-    if (!currentUser.isProfileComplete) {
-      router.push('/profile/setup');
-    } else {
-      router.push('/');
-    }
-  }, [router]);
-
-  const signup = useCallback((email: string) => {
-    const newUser = initializeNewUser(email);
-    setUser(newUser);
-    try {
-      localStorage.setItem('OnTheDocUser', JSON.stringify(newUser));
-    } catch (error) {
-      console.error("Failed to set user in localStorage during signup", error);
-    }
-    router.push('/profile/setup'); 
-  }, [router]);
-
-  const logout = useCallback(() => {
+  const logout = async () => {
+    await signOut(auth);
     setUser(null);
-    try {
-      localStorage.removeItem('OnTheDocUser');
-    } catch (error) {
-      console.error("Failed to remove user from localStorage", error);
-    }
-    router.push('/about'); // Changed from '/login' to '/about'
-  }, [router]);
+    router.push('/about');
+  };
 
-  const updateUserProfile = useCallback((updatedData: Partial<UserProfileData>) => {
-    setUser(prevUser => {
-      if (!prevUser) return null;
-      const newRotas = updatedData.rotas || prevUser.rotas; // Preserve rotas if not in updatedData
-      const newUser = { ...prevUser, ...updatedData, rotas: newRotas };
-      try {
-        localStorage.setItem('OnTheDocUser', JSON.stringify(newUser));
-      } catch (error) {
-        console.error("Failed to update user in localStorage", error);
-      }
-      return newUser;
+  const updateUserProfile = async (updatedData: Partial<UserProfileData>) => {
+    if (!user) throw new Error("User not authenticated");
+    const userDocRef = doc(db, 'users', user.id);
+    await updateDoc(userDocRef, updatedData);
+    setUser(prevUser => prevUser ? { ...prevUser, ...updatedData } : null);
+  };
+
+  const addRotaDocument = async (rotaDocument: RotaDocument) => {
+    if (!user) throw new Error("User not authenticated");
+    const userDocRef = doc(db, 'users', user.id);
+    await updateDoc(userDocRef, {
+        rotas: arrayUnion(rotaDocument)
     });
-  }, []);
-
-  const addRotaDocument = useCallback((rotaDocument: RotaDocument) => {
     setUser(prevUser => {
         if (!prevUser) return null;
         const updatedRotas = [...(prevUser.rotas || []), rotaDocument];
-        const newUser = { ...prevUser, rotas: updatedRotas };
-        localStorage.setItem('OnTheDocUser', JSON.stringify(newUser));
-        return newUser;
+        return { ...prevUser, rotas: updatedRotas };
     });
-  }, []);
+  };
 
-  const updateRotaDocument = useCallback((updatedRotaDoc: RotaDocument) => {
+  const updateRotaDocument = async (updatedRotaDoc: RotaDocument) => {
+    if (!user || !user.rotas) throw new Error("User or rotas not found");
+
+    const userDocRef = doc(db, 'users', user.id);
+    // To update an item in an array, we must read, modify, and write the whole array.
+    const currentRotas = user.rotas || [];
+    const updatedRotas = currentRotas.map(rota => rota.id === updatedRotaDoc.id ? updatedRotaDoc : rota);
+    
+    await updateDoc(userDocRef, { rotas: updatedRotas });
+
     setUser(prevUser => {
-        if (!prevUser || !prevUser.rotas) return prevUser;
-        const updatedRotas = prevUser.rotas.map(rota => 
-            rota.id === updatedRotaDoc.id ? updatedRotaDoc : rota
-        );
-        const newUser = { ...prevUser, rotas: updatedRotas };
-        localStorage.setItem('OnTheDocUser', JSON.stringify(newUser));
-        return newUser;
+        if (!prevUser) return null;
+        return { ...prevUser, rotas: updatedRotas };
     });
-  }, []);
+  };
 
-  const deleteRotaDocument = useCallback((rotaId: string) => {
+  const deleteRotaDocument = async (rotaId: string) => {
+    if (!user || !user.rotas) throw new Error("User or rotas not found");
+    const userDocRef = doc(db, 'users', user.id);
+    
+    const rotaToDelete = user.rotas.find(r => r.id === rotaId);
+    if (!rotaToDelete) return; // Rota not found, do nothing.
+
+    await updateDoc(userDocRef, {
+        rotas: arrayRemove(rotaToDelete)
+    });
+
     setUser(prevUser => {
-        if (!prevUser || !prevUser.rotas) return prevUser;
-        const updatedRotas = prevUser.rotas.filter(rota => rota.id !== rotaId);
-        const newUser = { ...prevUser, rotas: updatedRotas };
-        localStorage.setItem('OnTheDocUser', JSON.stringify(newUser));
-        return newUser;
+        if (!prevUser) return null;
+        const newRotas = prevUser.rotas.filter(r => r.id !== rotaId);
+        return { ...prevUser, rotas: newRotas };
     });
-  }, []);
-
+  };
 
   return (
     <AuthContext.Provider value={{ user, login, signup, logout, updateUserProfile, addRotaDocument, updateRotaDocument, deleteRotaDocument, loading }}>

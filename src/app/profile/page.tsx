@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { UserCircle, Mail, LogOut, Briefcase, Landmark, Save } from 'lucide-react';
+import { UserCircle, Mail, LogOut, Briefcase, Landmark, Save, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,16 +66,20 @@ export default function ProfilePage() {
   }, [user, authLoading, router, reset]);
   
 
-  const onSubmit: SubmitHandler<ProfileEditFormValues> = (data) => {
+  const onSubmit: SubmitHandler<ProfileEditFormValues> = async (data) => {
     if (user) {
       const profileUpdateData: Partial<UserProfileData> = {
         ...data, 
         grade: data.grade === '' ? undefined : data.grade,
         region: data.region === '' ? undefined : data.region,
       };
-      updateUserProfile(profileUpdateData);
-      toast({ title: "Profile Updated", description: "Your personal details have been saved." });
-      reset(data); // Resets form dirty state with current data
+      try {
+        await updateUserProfile(profileUpdateData);
+        toast({ title: "Profile Updated", description: "Your personal details have been saved." });
+        reset(data); 
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to update profile. Please try again.", variant: "destructive" });
+      }
     }
   };
 
@@ -167,7 +171,8 @@ export default function ProfilePage() {
               <LogOut className="mr-2 h-4 w-4" /> Logout
             </Button>
             <Button type="submit" disabled={isSubmitting || !isDirty} className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground">
-              <Save className="mr-2 h-4 w-4" /> {isSubmitting ? 'Saving...' : 'Save Changes'}
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>
           </CardFooter>
         </form>
