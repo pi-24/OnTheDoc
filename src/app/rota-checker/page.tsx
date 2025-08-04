@@ -1,7 +1,6 @@
-
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -17,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
-export default function RotaCheckerPage() {
+function RotaCheckerContent() {
   const { user, loading: authLoading, updateRotaDocument } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -189,3 +188,17 @@ export default function RotaCheckerPage() {
   );
 }
 
+// This is now the default export for the page. It's a Server Component.
+export default function RotaCheckerPage() {
+  // It wraps the client component in a Suspense boundary.
+  return (
+    <Suspense fallback={
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-10rem)]">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="mt-4 text-lg text-muted-foreground">Loading Rota...</p>
+        </div>
+    }>
+      <RotaCheckerContent />
+    </Suspense>
+  );
+}
